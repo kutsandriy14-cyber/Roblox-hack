@@ -1,11 +1,7 @@
+-- Запускать напрямую как LocalScript в StarterPlayerScripts или StarterGui.
 --[[
     ESP + MOVEMENT DEBUG MENU
     Для собственного Roblox-плейса.
-
-    Установка:
-    1. Roblox Studio -> StarterPlayer -> StarterPlayerScripts.
-    2. Создай LocalScript.
-    3. Скопируй содержимое этого файла в LocalScript.
 
     Управление:
     - RightShift: открыть/скрыть меню после закрытия.
@@ -129,7 +125,6 @@ for _, player in ipairs(Players:GetPlayers()) do trackPlayer(player) end
 Players.PlayerAdded:Connect(trackPlayer)
 Players.PlayerRemoving:Connect(removeESP)
 
--- GUI helpers
 local gui = Instance.new("ScreenGui")
 gui.Name = "DebugToolsGui"
 gui.ResetOnSpawn = false
@@ -365,7 +360,6 @@ minimize.MouseButton1Click:Connect(function() setMenu(false) end)
 close.MouseButton1Click:Connect(function() setMenu(false) end)
 mini.MouseButton1Click:Connect(function() setMenu(true) end)
 
--- Dragging by the top bar; supports mouse and touch.
 local dragging = false
 local dragStart, startPosition
 local function beginDrag(input)
@@ -395,7 +389,6 @@ UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Keyboard then keys[input.KeyCode] = false end
 end)
 
--- ESP update
 local timer = 0
 RunService.RenderStepped:Connect(function(dt)
     timer += dt
@@ -417,7 +410,6 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Local test flight
     if state.FlyEnabled then
         local root = getCharacterRoot()
         if root then
