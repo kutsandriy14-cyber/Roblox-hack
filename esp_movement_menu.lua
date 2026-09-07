@@ -1,4 +1,6 @@
--- Запускать напрямую как LocalScript в StarterPlayerScripts или StarterGui.
+-- Запускать через executor:
+--   loadstring(game:HttpGet("https://raw.githubusercontent.com/kutsandriy14-cyber/Roblox-hack/refs/heads/main/esp_movement_menu.lua"))()
+-- или просто скопировать содержимое в executor.
 --[[
     ESP + MOVEMENT DEBUG MENU
     Для собственного Roblox-плейса.
@@ -6,65 +8,18 @@
     Управление:
     - RightShift: открыть/скрыть меню после закрытия.
     - Fly: WASD, Space вверх, LeftControl вниз.
-
-    Подгрузка с сервера: loadstring() тянет скрипт по SOURCE_URL
-    и выполняет его вместо локального кода. Если сеть/синтаксис
-    упали — отрабатывает встроенный код ниже как фолбэк.
 ]]
 
--- ↓↓↓ поменяй на свой URL ↓↓↓
-local SOURCE_URL = "https://raw.githubusercontent.com/kutsandriy14-cyber/Roblox-hack/refs/heads/main/esp_movement_menu.lua"
--- ↑↑↑ поменяй на свой URL ↑↑↑
-
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
-local function http_get(url)
-    if type(http_request) == "function" then
-        return http_request({ Url = url, Method = "GET" })
-    elseif type(request) == "function" then
-        return request({ Url = url, Method = "GET" })
-    elseif type(syn) == "table" and type(syn.request) == "function" then
-        return syn.request({ Url = url, Method = "GET" })
+if game and game.GetService then -- стандартная среда Roblox
+    if getgenv and getgenv().__ESP_MOVEMENT_MENU_LOADED then
+        warn("[DebugTools] уже запущен, повторный запуск игнорирую")
+        return
     end
-    return nil, "no http function"
+    if getgenv then getgenv().__ESP_MOVEMENT_MENU_LOADED = true end
 end
 
-local function try_remote()
-    if SOURCE_URL == "" or not SOURCE_URL:match("^https?://") then
-        return false, "SOURCE_URL не задан"
-    end
-    local response, err = http_get(SOURCE_URL)
-    if not response then return false, "fetch error: " .. tostring(err) end
-    local body = response.Body or response.body
-    if type(body) ~= "string" or #body == 0 then
-        return false, "пустой ответ"
-    end
-    local fn, loadErr = loadstring(body, "DebugToolsRemote")
-    if not fn then return false, "loadstring: " .. tostring(loadErr) end
-    local ok, runErr = pcall(fn)
-    if not ok then return false, "runtime: " .. tostring(runErr) end
-    return true, "loaded from " .. SOURCE_URL
-end
-
-local function run_local_fallback()
-    -- Тело твоего исходного скрипта начинается ниже.
-
--- Запускать напрямую как LocalScript в StarterPlayerScripts или StarterGui.
---[[
-    ESP + MOVEMENT DEBUG MENU
-    Для собственного Roblox-плейса.
-
-    Управление:
-    - RightShift: открыть/скрыть меню после закрытия.
-    - Fly: WASD, Space вверх, LeftControl вниз.
-
-    Важно: это клиентский отладочный LocalScript. Telegram-верификация
-    здесь намеренно не используется: надёжная проверка требует серверной
-    части и внешнего HTTPS-сервера.
-]]
-
+local ok, err = pcall(function()
+-- всё тело скрипта внутри этого блока
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -501,19 +456,9 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("Debug Tools loaded. Press RightShift to toggle the menu.")
-
-end  -- конец run_local_fallback()
-
-task.spawn(function()
-    local ok, info = try_remote()
-    if ok then
-        warn("[DebugTools] " .. tostring(info))
-    else
-        warn("[DebugTools] remote недоступен (" .. tostring(info) .. "), запускаю локальный код")
-        local fok, ferr = pcall(run_local_fallback)
-        if not fok then
-            warn("[DebugTools] локальный код упал: " .. tostring(ferr))
-        end
-    end
+print("[DebugTools] loaded. Press RightShift to toggle the menu.")
+-- конец тела скрипта
 end)
+if not ok then
+    warn("[DebugTools] runtime error: " .. tostring(err))
+end
