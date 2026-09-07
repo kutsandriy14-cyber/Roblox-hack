@@ -23,6 +23,7 @@ local ok, err = pcall(function()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -32,6 +33,10 @@ local CONFIG = {
     WalkSpeed = 16,
     JumpPower = 50,
     FlySpeed = 70,
+    InfiniteJump = false,
+    AimFov = 90,
+    AimSmoothness = 5,
+    AimTargetPart = "Head",
     Theme = Color3.fromRGB(112, 92, 255),
 }
 
@@ -171,8 +176,8 @@ end
 
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = UDim2.fromOffset(390, 300)
-main.Position = UDim2.new(0.5, -195, 0.5, -150)
+main.Size = UDim2.fromOffset(390, 480)
+main.Position = UDim2.new(0.5, -195, 0.5, -240)
 main.BackgroundColor3 = Color3.fromRGB(19, 19, 28)
 main.BorderSizePixel = 0
 main.Parent = gui
@@ -216,6 +221,7 @@ tabs.Parent = main
 corner(tabs, 9)
 
 local content = Instance.new("Frame")
+content.Name = "Content"
 content.Size = UDim2.new(1, -137, 1, -67)
 content.Position = UDim2.fromOffset(127, 57)
 content.BackgroundTransparency = 1
@@ -241,6 +247,7 @@ end
 
 local espTab = makeTab("ESP", "◉   ESP", 14)
 local moveTab = makeTab("Movement", "↗   MOVEMENT", 62)
+local aimTab = makeTab("AIM", "◎   AIM", 110)
 
 local espPage = Instance.new("Frame")
 espPage.Size = UDim2.fromScale(1,1)
@@ -254,6 +261,13 @@ movePage.BackgroundTransparency = 1
 movePage.Visible = false
 movePage.Parent = content
 pages.Movement = movePage
+
+local aimPage = Instance.new("Frame")
+aimPage.Size = UDim2.fromScale(1,1)
+aimPage.BackgroundTransparency = 1
+aimPage.Visible = false
+aimPage.Parent = content
+pages.AIM = aimPage
 
 local function makeToggle(parent, text, y, initial, callback)
     local b = Instance.new("TextButton")
@@ -317,21 +331,46 @@ local humanoid = function()
     return c and c:FindFirstChildOfClass("Humanoid")
 end
 
-makeInput(movePage, "WalkSpeed", CONFIG.WalkSpeed, 7, function(v)
-    CONFIG.WalkSpeed = math.clamp(v, 0, 250)
-    local h = humanoid(); if h then h.WalkSpeed = CONFIG.WalkSpeed end
+-- Тумблеры для каждого чит-параметра: имя → ключ в state, дефолт.
+state.SpeedEnabled = false
+state.JumpEnabled = false
+state.NoClipEnabled = false
+state.AimEnabled = false
+state.AimShowFov = true
+state.AimHoldRightMouse = true
+
+makeToggle(movePage, "Speed Hack", 7, state.SpeedEnabled, function(v) state.SpeedEnabled = v end)
+makeInput(movePage, "Speed value", CONFIG.WalkSpeed, 51, function(v)
+    CONFIG.WalkSpeed = math.clamp(v, 0, 500)
     return CONFIG.WalkSpeed
 end)
-makeInput(movePage, "JumpPower", CONFIG.JumpPower, 49, function(v)
-    CONFIG.JumpPower = math.clamp(v, 0, 250)
-    local h = humanoid(); if h then h.UseJumpPower = true; h.JumpPower = CONFIG.JumpPower end
+makeToggle(movePage, "High Jump", 102, state.JumpEnabled, function(v) state.JumpEnabled = v end)
+makeInput(movePage, "Jump value", CONFIG.JumpPower, 146, function(v)
+    CONFIG.JumpPower = math.clamp(v, 0, 500)
     return CONFIG.JumpPower
 end)
-makeInput(movePage, "Fly speed", CONFIG.FlySpeed, 91, function(v)
-    CONFIG.FlySpeed = math.clamp(v, 10, 250)
+makeToggle(movePage, "Fly", 197, state.FlyEnabled, function(v) state.FlyEnabled = v end)
+makeInput(movePage, "Fly speed", CONFIG.FlySpeed, 241, function(v)
+    CONFIG.FlySpeed = math.clamp(v, 10, 500)
     return CONFIG.FlySpeed
 end)
-makeToggle(movePage, "Fly", 138, state.FlyEnabled, function(v) state.FlyEnabled = v end)
+makeToggle(movePage, "Infinite Jump", 292, CONFIG.InfiniteJump, function(v) CONFIG.InfiniteJump = v end)
+makeToggle(movePage, "No Clip", 336, state.NoClipEnabled, function(v) state.NoClipEnabled = v end)
+
+-- Вкладка AIM
+makeToggle(aimPage, "Aimbot", 7, state.AimEnabled, function(v) state.AimEnabled = v end)
+makeToggle(aimPage, "Hold Right Mouse", 51, state.AimHoldRightMouse, function(v) state.AimHoldRightMouse = v end)
+makeToggle(aimPage, "Show FOV Circle", 95, state.AimShowFov, function(v) state.AimShowFov = v end)
+makeInput(aimPage, "FOV (deg)", CONFIG.AimFov, 146, function(v)
+    CONFIG.AimFov = math.clamp(v, 10, 360)
+    return CONFIG.AimFov
+end)
+makeInput(aimPage, "Smoothness", CONFIG.AimSmoothness, 190, function(v)
+    CONFIG.AimSmoothness = math.clamp(v, 1, 30)
+    return CONFIG.AimSmoothness
+end)
+label(aimPage, "Target part: Head (default)", UDim2.new(1, -12, 0, 25), UDim2.fromOffset(6, 245), 12, Color3.fromRGB(140,138,165))
+label(aimPage, "Works while holding Right Mouse", UDim2.new(1, -12, 0, 25), UDim2.fromOffset(6, 268), 12, Color3.fromRGB(140,138,165))
 
 local function selectTab(name)
     state.ActiveTab = name
@@ -343,7 +382,68 @@ local function selectTab(name)
 end
 espTab.MouseButton1Click:Connect(function() selectTab("ESP") end)
 moveTab.MouseButton1Click:Connect(function() selectTab("Movement") end)
+aimTab.MouseButton1Click:Connect(function() selectTab("AIM") end)
 selectTab("ESP")
+
+-- Кольцо FOV через Drawing (если executor даёт) — тонкое, яркое, не мешает.
+local fovCircle
+if Drawing then
+    fovCircle = Drawing.new("Circle")
+    fovCircle.Visible = false
+    fovCircle.Color = Color3.fromRGB(255, 90, 100)
+    fovCircle.Thickness = 1
+    fovCircle.Filled = false
+    fovCircle.Transparency = 0.6
+end
+
+local aimRightMouseDown = false
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        aimRightMouseDown = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        aimRightMouseDown = false
+    end
+end)
+
+-- Аим-бот: ищем ближайшую цель в FOV от центра экрана и плавно
+-- наводим камеру. Безопасно: меняем только локальный CFrame камеры.
+local function getAimTarget()
+    local myChar = LocalPlayer.Character
+    if not myChar then return nil end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    local camera = Workspace.CurrentCamera
+    local best, bestDist = nil, CONFIG.AimFov
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            local head = player.Character:FindFirstChild("Head")
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            local part = (CONFIG.AimTargetPart == "HumanoidRootPart") and root or head
+            if hum and hum.Health > 0 and part then
+                -- пропускаем тиммейтов
+                if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
+                    continue
+                end
+                local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    local maxPx = math.tan(math.rad(CONFIG.AimFov / 2)) * (camera.ViewportSize.Y / 2) * 2
+                    if dist <= maxPx and dist < bestDist then
+                        best = part
+                        bestDist = dist
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
 
 local mini = Instance.new("TextButton")
 mini.Name = "OpenButton"
@@ -393,6 +493,17 @@ UserInputService.InputBegan:Connect(function(input, processed)
     if input.KeyCode == Enum.KeyCode.RightShift then setMenu(not state.MenuVisible) end
     if input.UserInputType == Enum.UserInputType.Keyboard then keys[input.KeyCode] = true end
 end)
+
+-- Infinite Jump: слушаем JumpRequest (это событие посылается на любую
+-- клавишу прыжка/тачскрин), и форсим состояние Jumping.
+UserInputService.JumpRequest:Connect(function()
+    if CONFIG.InfiniteJump then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Keyboard then keys[input.KeyCode] = false end
 end)
@@ -418,19 +529,20 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
+    -- Fly: CFrame-двигание + временное отключение гравитации.
+    -- BodyVelocity/BodyGyro серверные плееры часто обнуляют, поэтому
+    -- CFrame-двигание работает почти везде.
     if state.FlyEnabled then
         local root = getCharacterRoot()
         if root then
             if not flyVelocity then
-                flyVelocity = Instance.new("BodyVelocity")
-                flyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                flyVelocity.Parent = root
-                flyGyro = Instance.new("BodyGyro")
-                flyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-                flyGyro.P = 1e5
-                flyGyro.Parent = root
+                -- первый кадр полёта: запоминаем гравитацию и отключаем
+                flyVelocity = { savedGravity = Workspace.Gravity }
+                Workspace.Gravity = 0
+                local hum = root.Parent and root.Parent:FindFirstChildOfClass("Humanoid")
+                if hum then hum.PlatformStand = true end
             end
-            local camera = workspace.CurrentCamera
+            local camera = Workspace.CurrentCamera
             local direction = Vector3.zero
             if keys[Enum.KeyCode.W] then direction += camera.CFrame.LookVector end
             if keys[Enum.KeyCode.S] then direction -= camera.CFrame.LookVector end
@@ -438,23 +550,143 @@ RunService.RenderStepped:Connect(function(dt)
             if keys[Enum.KeyCode.A] then direction -= camera.CFrame.RightVector end
             if keys[Enum.KeyCode.Space] then direction += Vector3.yAxis end
             if keys[Enum.KeyCode.LeftControl] then direction -= Vector3.yAxis end
-            flyVelocity.Velocity = direction.Magnitude > 0 and direction.Unit * CONFIG.FlySpeed or Vector3.zero
-            flyGyro.CFrame = camera.CFrame
+            if direction.Magnitude > 0 then
+                root.CFrame = root.CFrame + direction.Unit * CONFIG.FlySpeed * dt
+            end
+            root.CFrame = CFrame.new(root.Position) * (camera.CFrame - camera.CFrame.Position)
         end
     elseif flyVelocity then
-        flyVelocity:Destroy(); flyVelocity = nil
-        if flyGyro then flyGyro:Destroy(); flyGyro = nil end
+        Workspace.Gravity = flyVelocity.savedGravity or 196.2
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+        flyVelocity = nil
+        if flyGyro then flyGyro = nil end
+    end
+
+    -- Форс WalkSpeed / JumpPower — только если соответствующий тумблер ON.
+    -- Иначе оставляем дефолтные значения, чтобы не ломать плеер.
+    local myChar = LocalPlayer.Character
+    if myChar then
+        local hum = myChar:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local targetSpeed = state.SpeedEnabled and CONFIG.WalkSpeed or 16
+            local targetJump = state.JumpEnabled and CONFIG.JumpPower or 50
+            if hum.WalkSpeed ~= targetSpeed then hum.WalkSpeed = targetSpeed end
+            if hum.UseJumpPower ~= true then hum.UseJumpPower = true end
+            if hum.JumpPower ~= targetJump then hum.JumpPower = targetJump end
+        end
+    end
+
+    -- No Clip: отключаем коллизии у всех частей персонажа, пока тумблер ON.
+    if state.NoClipEnabled then
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end
+    end
+
+    -- Aimbot: плавно наводим камеру на ближайшую цель в FOV.
+    if state.AimEnabled and (state.AimHoldRightMouse == false or aimRightMouseDown) then
+        local target = getAimTarget()
+        if target then
+            local camera = Workspace.CurrentCamera
+            local targetPos = target.Position
+            local aimCF = CFrame.lookAt(camera.CFrame.Position, targetPos)
+            -- плавность: smoothness = 1 = моментально, выше = плавнее
+            local alpha = 1 / math.max(1, CONFIG.AimSmoothness)
+            camera.CFrame = camera.CFrame:Lerp(aimCF, alpha)
+        end
+    end
+
+    -- FOV-кольцо: рисуем только когда тумблер Show FOV включён.
+    if fovCircle then
+        if state.AimShowFov and state.AimEnabled then
+            local camera = Workspace.CurrentCamera
+            fovCircle.Position = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+            local radiusPx = math.tan(math.rad(CONFIG.AimFov / 2)) * (camera.ViewportSize.Y / 2) * 2
+            fovCircle.Radius = radiusPx
+            fovCircle.Visible = true
+        else
+            fovCircle.Visible = false
+        end
     end
 end)
 
-LocalPlayer.CharacterAdded:Connect(function(character)
-    local h = character:WaitForChild("Humanoid", 5)
-    if h then
-        h.WalkSpeed = CONFIG.WalkSpeed
-        h.UseJumpPower = true
-        h.JumpPower = CONFIG.JumpPower
+-- Анти-античит: навешиваем на Humanoid моментальный откат WalkSpeed/JumpPower,
+-- если серверный скрипт их перезаписывает. Работает через GetPropertyChangedSignal —
+-- реагирует за один кадр, без задержки.
+local function bindForce(character)
+    local hum = character:WaitForChild("Humanoid", 5)
+    if not hum then return end
+
+    local function forceNow()
+        if not hum or not hum.Parent then return end
+        if state.SpeedEnabled and hum.WalkSpeed ~= CONFIG.WalkSpeed then
+            hum.WalkSpeed = CONFIG.WalkSpeed
+        end
+        if state.JumpEnabled then
+            if hum.UseJumpPower ~= true then hum.UseJumpPower = true end
+            if hum.JumpPower ~= CONFIG.JumpPower then
+                hum.JumpPower = CONFIG.JumpPower
+            end
+        end
     end
-end)
+
+    forceNow()
+    -- моментальный откат при любом изменении свойства
+    hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if state.SpeedEnabled and hum.WalkSpeed ~= CONFIG.WalkSpeed then
+            hum.WalkSpeed = CONFIG.WalkSpeed
+        end
+    end)
+    hum:GetPropertyChangedSignal("JumpPower"):Connect(function()
+        if state.JumpEnabled and hum.JumpPower ~= CONFIG.JumpPower then
+            hum.JumpPower = CONFIG.JumpPower
+        end
+    end)
+    hum:GetPropertyChangedSignal("UseJumpPower"):Connect(function()
+        if state.JumpEnabled and hum.UseJumpPower ~= true then
+            hum.UseJumpPower = true
+        end
+    end)
+end
+
+LocalPlayer.CharacterAdded:Connect(bindForce)
+-- если персонаж уже есть (CharacterAutoLoads), привязаться к нему
+if LocalPlayer.Character then
+    task.spawn(bindForce, LocalPlayer.Character)
+end
+
+-- Перехват сеттера на уровне метатаблицы. Если executor даёт hookmetamethod —
+-- блокируем попытки сервера/анти-чита перезаписать WalkSpeed/JumpPower.
+-- Это второй эшелон: первый — GetPropertyChangedSignal, второй — перехват сеттера.
+if hookmetamethod and newcclosure then
+    local blocked = 0
+    local oldIndex
+    pcall(function()
+        oldIndex = hookmetamethod(game, "__newindex", newcclosure(function(self, key, value)
+            if self and self:IsA("Humanoid") then
+                if key == "WalkSpeed" and state.SpeedEnabled and value ~= CONFIG.WalkSpeed then
+                    blocked += 1
+                    return oldIndex(self, key, CONFIG.WalkSpeed)  -- откатываем
+                end
+                if key == "JumpPower" and state.JumpEnabled and value ~= CONFIG.JumpPower then
+                    blocked += 1
+                    return oldIndex(self, key, CONFIG.JumpPower)
+                end
+                if key == "UseJumpPower" and state.JumpEnabled and value ~= true then
+                    return oldIndex(self, key, true)
+                end
+            end
+            return oldIndex(self, key, value)
+        end))
+    end)
+    if oldIndex then
+        print("[DebugTools] hookmetamethod активен (анти-античит)")
+    end
+end
 
 print("[DebugTools] loaded. Press RightShift to toggle the menu.")
 -- конец тела скрипта
