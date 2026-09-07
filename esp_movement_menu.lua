@@ -344,9 +344,8 @@ end
 
 -- Сайдбар вкладок
 local tabs = Instance.new("Frame")
-tabs.Size = UDim2.fromOffset(110, 0)
-tabs.Position = UDim2.new(0, 0, 0, 44)
 tabs.Size = UDim2.new(0, 110, 1, -44)
+tabs.Position = UDim2.new(0, 0, 0, 44)
 tabs.BackgroundColor3 = Color3.fromRGB(24, 24, 35)
 tabs.BorderSizePixel = 0
 tabs.Parent = main
@@ -360,15 +359,6 @@ tabLayout.Parent = tabs
 local tabPadding = Instance.new("UIPadding")
 tabPadding.PaddingTop = UDim.new(0, 8)
 tabPadding.Parent = tabs
-
--- Контент (ScrollingFrame для прокрутки)
-local content = Instance.new("Frame")
-content.Name = "Content"
-content.Size = UDim2.new(1, -118, 1, -52)
-content.Position = UDim2.fromOffset(114, 48)
-content.BackgroundTransparency = 1
-content.ClipsDescendants = true
-content.Parent = main
 
 local tabButtons = {}
 local pages = {}
@@ -400,19 +390,22 @@ for i, name in ipairs(pageOrder) do
     })[name], i)
 end
 
--- Каждая вкладка — ScrollingFrame
+-- Каждая вкладка — ScrollingFrame, лежит прямо в main с одной и той же геометрией.
+-- selectTab включает/выключает Visible, перекрытия не страшны — ClipsDescendants режет.
 local function makePage(name)
     local sf = Instance.new("ScrollingFrame")
     sf.Name = name .. "Page"
-    sf.Size = UDim2.fromScale(1, 1)
+    sf.Size = UDim2.new(1, -118, 1, -52)
+    sf.Position = UDim2.fromOffset(114, 48)
     sf.BackgroundTransparency = 1
     sf.BorderSizePixel = 0
     sf.ScrollBarThickness = 4
     sf.ScrollBarImageColor3 = CONFIG.Theme
     sf.CanvasSize = UDim2.new(0, 0, 0, 0)
     sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    sf.ElasticBehavior = Enum.ElasticBehavior.Never
     sf.Visible = (name == state.ActiveTab)
-    sf.Parent = content
+    sf.Parent = main
     pages[name] = sf
     return sf
 end
