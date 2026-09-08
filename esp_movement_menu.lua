@@ -250,6 +250,8 @@ mini.Font = Enum.Font.GothamBold
 mini.TextSize = 14
 mini.AutoButtonColor = true
 mini.Visible = false
+mini.Active = true
+mini.Visible = isMobile -- на мобиле показываем сразу, на ПК — только после закрытия
 mini.Parent = gui
 corner(mini, 14)
 stroke(mini, Color3.fromRGB(190, 185, 255), 1)
@@ -279,14 +281,27 @@ do
     end)
 end
 
+-- Адаптивный UI: на мобиле — почти весь экран, на ПК — фиксированный размер.
+-- Определяем мобилку по размеру экрана (надёжнее, чем по TouchEnabled, потому что
+-- Bluetooth-клавиатура у мобильных юзеров делает KeyboardEnabled = true).
+local viewportSize = Camera.ViewportSize
+local isMobile = viewportSize.X < 600 or (UserInputService.TouchEnabled and viewportSize.X < 900)
+
 -- Главное окно
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = UDim2.fromOffset(420, 520)
-main.Position = UDim2.new(0.5, -210, 0.5, -260)
+if isMobile then
+    main.Size = UDim2.new(0.96, 0, 0.78, 0)
+    main.Position = UDim2.new(0.02, 0, 0.11, 0)
+else
+    main.Size = UDim2.fromOffset(420, 520)
+    main.Position = UDim2.new(0.5, -210, 0.5, -260)
+end
 main.BackgroundColor3 = Color3.fromRGB(19, 19, 28)
 main.BorderSizePixel = 0
 main.Visible = true
+main.Active = true -- мобайл: чтобы тач-скролл внутри работал
+main.Draggable = false -- мы перетаскиваем вручную через InputBegan
 main.Parent = gui
 corner(main, 12)
 stroke(main, Color3.fromRGB(68, 64, 105), 1)
@@ -344,7 +359,7 @@ end
 
 -- Сайдбар вкладок
 local tabs = Instance.new("Frame")
-tabs.Size = UDim2.new(0, 110, 1, -44)
+tabs.Size = isMobile and UDim2.new(0, 70, 1, -44) or UDim2.new(0, 110, 1, -44)
 tabs.Position = UDim2.new(0, 0, 0, 44)
 tabs.BackgroundColor3 = Color3.fromRGB(24, 24, 35)
 tabs.BorderSizePixel = 0
@@ -366,13 +381,14 @@ local pageOrder = { "ESP", "Movement", "AIM", "Trigger", "Misc" }
 
 local function makeTab(name, text, order)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -10, 0, 38)
+    b.Size = UDim2.new(1, -10, 0, isMobile and 50 or 38)
     b.LayoutOrder = order
     b.BackgroundColor3 = Color3.fromRGB(35, 34, 50)
     b.Text = text
     b.TextColor3 = Color3.fromRGB(205, 203, 220)
     b.Font = Enum.Font.GothamBold
-    b.TextSize = 12
+    b.TextSize = isMobile and 10 or 12
+    b.TextWrapped = true
     b.AutoButtonColor = true
     b.Parent = tabs
     corner(b, 7)
@@ -381,7 +397,13 @@ local function makeTab(name, text, order)
 end
 
 for i, name in ipairs(pageOrder) do
-    makeTab(name, ({
+    makeTab(name, isMobile and ({
+        ESP = "◉\nESP",
+        Movement = "↗\nMOVE",
+        AIM = "◎\nAIM",
+        Trigger = "⌖\nTRIG",
+        Misc = "⚙\nMISC",
+    })[name] or ({
         ESP = "◉   ESP",
         Movement = "↗   MOVE",
         AIM = "◎   AIM",
@@ -392,18 +414,25 @@ end
 
 -- Каждая вкладка — ScrollingFrame, лежит прямо в main с одной и той же геометрией.
 -- selectTab включает/выключает Visible, перекрытия не страшны — ClipsDescendants режет.
+local PAGE_OFFSET = isMobile and 78 or 118
 local function makePage(name)
     local sf = Instance.new("ScrollingFrame")
     sf.Name = name .. "Page"
-    sf.Size = UDim2.new(1, -118, 1, -52)
-    sf.Position = UDim2.fromOffset(114, 48)
-    sf.BackgroundTransparency = 1
+    sf.Size = UDim2.new(1, -PAGE_OFFSET - 6, 1, -52)
+    sf.Position = UDim2.fromOffset(PAGE_OFFSET, 48)
+    -- Полупрозрачный фон, чтобы было видно, что страница существует
+    sf.BackgroundTransparency = 0.7
+    sf.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
     sf.BorderSizePixel = 0
-    sf.ScrollBarThickness = 4
+    sf.ZIndex = 5
+    sf.ScrollBarThickness = isMobile and 6 or 4
     sf.ScrollBarImageColor3 = CONFIG.Theme
-    sf.CanvasSize = UDim2.new(0, 0, 0, 0)
+    -- Явный большой CanvasSize — на мобиле AutomaticCanvasSize иногда глючит
+    -- при первом рендере. Реальный размер пересчитается после первого кадра.
+    sf.CanvasSize = UDim2.new(0, 0, 0, 1000)
     sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
     sf.ElasticBehavior = Enum.ElasticBehavior.Never
+    sf.ScrollingDirection = Enum.ScrollingDirection.Y
     sf.Visible = (name == state.ActiveTab)
     sf.Parent = main
     pages[name] = sf
@@ -414,20 +443,25 @@ for _, name in ipairs(pageOrder) do
     makePage(name)
 end
 
--- Компоненты UI внутри ScrollingFrame
+-- Отладка: что страницы созданы
+for n, p in pairs(pages) do
+    print(string.format("[DebugTools] page %s created: size=%s pos=%s visible=%s parent=%s", n, tostring(p.Size), tostring(p.Position), tostring(p.Visible), tostring(p.Parent and p.Parent.Name or "nil")))
+end
+
+-- Компоненты UI внутри ScrollingFrame (адаптивные под мобилку)
 local function makeToggle(parent, text, y, initial, callback)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -12, 0, 36)
+    b.Size = UDim2.new(1, -12, 0, isMobile and 42 or 36)
     b.Position = UDim2.fromOffset(6, y)
     b.Font = Enum.Font.GothamBold
-    b.TextSize = 12
+    b.TextSize = isMobile and 13 or 12
     b.TextColor3 = Color3.new(1, 1, 1)
     b.AutoButtonColor = true
     b.Parent = parent
     corner(b, 8)
     local enabled = initial
     local function refresh()
-        b.Text = text .. (enabled and "     ON" or "     OFF")
+        b.Text = text .. (enabled and "   ON" or "   OFF")
         b.BackgroundColor3 = enabled and Color3.fromRGB(57, 139, 92) or Color3.fromRGB(75, 72, 91)
     end
     refresh()
@@ -440,15 +474,16 @@ local function makeToggle(parent, text, y, initial, callback)
 end
 
 local function makeInput(parent, title, value, y, callback)
-    label(parent, title, UDim2.new(0.46, 0, 0, 22), UDim2.fromOffset(6, y), 12, Color3.fromRGB(205, 203, 220))
+    -- Горизонтальный layout: заголовок слева, поле справа, в одну строку.
+    label(parent, title, UDim2.new(0.55, 0, 0, isMobile and 34 or 30), UDim2.fromOffset(6, y - 2), isMobile and 13 or 12, Color3.fromRGB(205, 203, 220))
     local box = Instance.new("TextBox")
-    box.Size = UDim2.new(0.5, -8, 0, 28)
-    box.Position = UDim2.new(0.5, 2, 0, y - 3)
+    box.Size = UDim2.new(0.42, -6, 0, isMobile and 34 or 30)
+    box.Position = UDim2.new(0.56, 0, 0, y - 2)
     box.BackgroundColor3 = Color3.fromRGB(34, 33, 47)
     box.TextColor3 = Color3.new(1, 1, 1)
     box.Text = tostring(value)
     box.Font = Enum.Font.GothamBold
-    box.TextSize = 12
+    box.TextSize = isMobile and 14 or 12
     box.ClearTextOnFocus = false
     box.Parent = parent
     corner(box, 7)
@@ -597,86 +632,149 @@ local trigPage = pages.Trigger
 local miscPage = pages.Misc
 
 -- === ESP ===
+local ESP_GAP = 6
+local espY = 0
+local function _t(parent, text, initial, callback)
+    espY += (ESP_GAP + (isMobile and 42 or 36))
+    return makeToggle(parent, text, espY, initial, callback)
+end
+local function _i(parent, title, value, callback)
+    espY += (ESP_GAP + (isMobile and 34 or 30))
+    return makeInput(parent, title, value, espY, callback)
+end
 makeSectionTitle(espPage, "ESP", 6)
-makeToggle(espPage, "Player ESP", 26, CONFIG.EspEnabled, function(v) CONFIG.EspEnabled = v end)
-makeToggle(espPage, "Visible Only (dim if behind wall)", 68, CONFIG.EspVisibleOnly, function(v) CONFIG.EspVisibleOnly = v end)
-makeInput(espPage, "Max distance (studs)", CONFIG.EspMaxDistance, 110, function(v)
+espY = 6
+_t(espPage, "Player ESP", CONFIG.EspEnabled, function(v) CONFIG.EspEnabled = v end)
+_t(espPage, "Visible Only (dim if behind wall)", CONFIG.EspVisibleOnly, function(v) CONFIG.EspVisibleOnly = v end)
+_i(espPage, "Max distance (studs)", CONFIG.EspMaxDistance, function(v)
     CONFIG.EspMaxDistance = math.clamp(v, 25, 5000)
     return CONFIG.EspMaxDistance
 end)
 
 -- === Movement ===
+local moveY = 0
+local function __t(parent, text, initial, callback)
+    moveY += (ESP_GAP + (isMobile and 42 or 36))
+    return makeToggle(parent, text, moveY, initial, callback)
+end
+local function __i(parent, title, value, callback)
+    moveY += (ESP_GAP + (isMobile and 34 or 30))
+    return makeInput(parent, title, value, moveY, callback)
+end
+local function __s(parent, title, options, default, callback)
+    moveY += (ESP_GAP + 50)
+    return makeSegmented(parent, title, options, moveY, default, callback)
+end
 makeSectionTitle(movePage, "Movement", 6)
-makeToggle(movePage, "Speed Hack", 26, CONFIG.SpeedEnabled, function(v) CONFIG.SpeedEnabled = v end)
-makeInput(movePage, "WalkSpeed", CONFIG.WalkSpeed, 68, function(v)
+moveY = 6
+__t(movePage, "Speed Hack", CONFIG.SpeedEnabled, function(v) CONFIG.SpeedEnabled = v end)
+__i(movePage, "WalkSpeed", CONFIG.WalkSpeed, function(v)
     CONFIG.WalkSpeed = math.clamp(v, 0, 500)
     return CONFIG.WalkSpeed
 end)
-makeToggle(movePage, "High Jump", 110, CONFIG.JumpEnabled, function(v) CONFIG.JumpEnabled = v end)
-makeInput(movePage, "JumpPower", CONFIG.JumpPower, 152, function(v)
+__t(movePage, "High Jump", CONFIG.JumpEnabled, function(v) CONFIG.JumpEnabled = v end)
+__i(movePage, "JumpPower", CONFIG.JumpPower, function(v)
     CONFIG.JumpPower = math.clamp(v, 0, 500)
     return CONFIG.JumpPower
 end)
-makeToggle(movePage, "Fly", 194, CONFIG.FlyEnabled, function(v) CONFIG.FlyEnabled = v end)
-makeSegmented(movePage, "Fly method", { "CFrame", "BodyMover" }, 236, CONFIG.FlyMethod, function(v) CONFIG.FlyMethod = v end)
-makeInput(movePage, "Fly speed", CONFIG.FlySpeed, 296, function(v)
+__t(movePage, "Fly", CONFIG.FlyEnabled, function(v) CONFIG.FlyEnabled = v end)
+__s(movePage, "Fly method", { "CFrame", "BodyMover" }, CONFIG.FlyMethod, function(v) CONFIG.FlyMethod = v end)
+__i(movePage, "Fly speed", CONFIG.FlySpeed, function(v)
     CONFIG.FlySpeed = math.clamp(v, 10, 500)
     return CONFIG.FlySpeed
 end)
-makeToggle(movePage, "Infinite Jump", 340, CONFIG.InfiniteJump, function(v) CONFIG.InfiniteJump = v end)
-makeToggle(movePage, "No Clip (universal)", 382, CONFIG.NoClipEnabled, function(v) CONFIG.NoClipEnabled = v end)
+__t(movePage, "Infinite Jump", CONFIG.InfiniteJump, function(v) CONFIG.InfiniteJump = v end)
+__t(movePage, "No Clip (universal)", CONFIG.NoClipEnabled, function(v) CONFIG.NoClipEnabled = v end)
 
 -- === AIM ===
+local aimY = 0
+local function _at(parent, text, initial, callback)
+    aimY += (ESP_GAP + (isMobile and 42 or 36))
+    return makeToggle(parent, text, aimY, initial, callback)
+end
+local function _ai(parent, title, value, callback)
+    aimY += (ESP_GAP + (isMobile and 34 or 30))
+    return makeInput(parent, title, value, aimY, callback)
+end
+local function _as(parent, title, options, default, callback)
+    aimY += (ESP_GAP + 50)
+    return makeSegmented(parent, title, options, aimY, default, callback)
+end
 makeSectionTitle(aimPage, "Aimbot", 6)
-makeToggle(aimPage, "Aimbot", 26, CONFIG.AimEnabled, function(v) CONFIG.AimEnabled = v end)
-makeToggle(aimPage, "Hold Right Mouse", 68, CONFIG.AimHoldRMB, function(v) CONFIG.AimHoldRMB = v end)
-makeToggle(aimPage, "Visible Only (skip behind walls)", 110, CONFIG.AimVisibleOnly, function(v) CONFIG.AimVisibleOnly = v end)
-makeToggle(aimPage, "Show FOV Circle", 152, CONFIG.AimShowFov, function(v) CONFIG.AimShowFov = v end)
-makeInput(aimPage, "FOV (deg)", CONFIG.AimFov, 194, function(v)
+aimY = 6
+_at(aimPage, "Aimbot", CONFIG.AimEnabled, function(v) CONFIG.AimEnabled = v end)
+_at(aimPage, "Hold Right Mouse", CONFIG.AimHoldRMB, function(v) CONFIG.AimHoldRMB = v end)
+_at(aimPage, "Visible Only (skip behind walls)", CONFIG.AimVisibleOnly, function(v) CONFIG.AimVisibleOnly = v end)
+_at(aimPage, "Show FOV Circle", CONFIG.AimShowFov, function(v) CONFIG.AimShowFov = v end)
+_ai(aimPage, "FOV (deg)", CONFIG.AimFov, function(v)
     CONFIG.AimFov = math.clamp(v, 5, 360)
     return CONFIG.AimFov
 end)
-makeInput(aimPage, "Smoothness (1=snappy)", CONFIG.AimSmoothness, 236, function(v)
+_ai(aimPage, "Smoothness (1=snappy)", CONFIG.AimSmoothness, function(v)
     CONFIG.AimSmoothness = math.clamp(v, 1, 30)
     return CONFIG.AimSmoothness
 end)
-makeInput(aimPage, "Max distance (studs)", CONFIG.AimMaxDistance, 278, function(v)
+_ai(aimPage, "Max distance (studs)", CONFIG.AimMaxDistance, function(v)
     CONFIG.AimMaxDistance = math.clamp(v, 25, 5000)
     return CONFIG.AimMaxDistance
 end)
-makeSegmented(aimPage, "Target part", { "Head", "HumanoidRootPart" }, 320, CONFIG.AimTargetPart, function(v) CONFIG.AimTargetPart = v end)
+_as(aimPage, "Target part", { "Head", "HumanoidRootPart" }, CONFIG.AimTargetPart, function(v) CONFIG.AimTargetPart = v end)
 
 -- === Trigger ===
+local trigY = 0
+local function _tt(parent, text, initial, callback)
+    trigY += (ESP_GAP + (isMobile and 42 or 36))
+    return makeToggle(parent, text, trigY, initial, callback)
+end
+local function _ti(parent, title, value, callback)
+    trigY += (ESP_GAP + (isMobile and 34 or 30))
+    return makeInput(parent, title, value, trigY, callback)
+end
+local function _ts(parent, title, options, default, callback)
+    trigY += (ESP_GAP + 50)
+    return makeSegmented(parent, title, options, trigY, default, callback)
+end
 makeSectionTitle(trigPage, "Trigger Bot", 6)
-makeToggle(trigPage, "Trigger Bot", 26, CONFIG.TriggerEnabled, function(v) CONFIG.TriggerEnabled = v end)
-makeToggle(trigPage, "Fire only when LMB held", 68, CONFIG.TriggerHoldMode, function(v) CONFIG.TriggerHoldMode = v end)
-makeToggle(trigPage, "Visible Only (skip behind walls)", 110, CONFIG.TriggerVisibleOnly, function(v) CONFIG.TriggerVisibleOnly = v end)
-makeInput(trigPage, "FOV (deg)", CONFIG.TriggerFov, 152, function(v)
+trigY = 6
+_tt(trigPage, "Trigger Bot", CONFIG.TriggerEnabled, function(v) CONFIG.TriggerEnabled = v end)
+_tt(trigPage, "Fire only when LMB held", CONFIG.TriggerHoldMode, function(v) CONFIG.TriggerHoldMode = v end)
+_tt(trigPage, "Visible Only (skip behind walls)", CONFIG.TriggerVisibleOnly, function(v) CONFIG.TriggerVisibleOnly = v end)
+_ti(trigPage, "FOV (deg)", CONFIG.TriggerFov, function(v)
     CONFIG.TriggerFov = math.clamp(v, 1, 90)
     return CONFIG.TriggerFov
 end)
-makeInput(trigPage, "Aim smoothness (1=snappy)", CONFIG.TriggerSmoothness, 194, function(v)
+_ti(trigPage, "Aim smoothness (1=snappy)", CONFIG.TriggerSmoothness, function(v)
     CONFIG.TriggerSmoothness = math.clamp(v, 1, 30)
     return CONFIG.TriggerSmoothness
 end)
-makeInput(trigPage, "Max distance (studs)", CONFIG.TriggerMaxDistance, 236, function(v)
+_ti(trigPage, "Max distance (studs)", CONFIG.TriggerMaxDistance, function(v)
     CONFIG.TriggerMaxDistance = math.clamp(v, 25, 2000)
     return CONFIG.TriggerMaxDistance
 end)
-makeInput(trigPage, "Click delay (ms)", CONFIG.TriggerDelayMs, 278, function(v)
+_ti(trigPage, "Click delay (ms)", CONFIG.TriggerDelayMs, function(v)
     CONFIG.TriggerDelayMs = math.clamp(v, 0, 500)
     return CONFIG.TriggerDelayMs
 end)
-makeSegmented(trigPage, "Target part", { "Head", "HumanoidRootPart", "Humanoid" }, 320, CONFIG.TriggerTargetPart, function(v) CONFIG.TriggerTargetPart = v end)
+_ts(trigPage, "Target part", { "Head", "HumanoidRootPart", "Humanoid" }, CONFIG.TriggerTargetPart, function(v) CONFIG.TriggerTargetPart = v end)
 
 -- === Misc ===
+local miscY = 0
+local function _mt(parent, text, initial, callback)
+    miscY += (ESP_GAP + (isMobile and 42 or 36))
+    return makeToggle(parent, text, miscY, initial, callback)
+end
+local function _mi(parent, title, value, callback)
+    miscY += (ESP_GAP + (isMobile and 34 or 30))
+    return makeInput(parent, title, value, miscY, callback)
+end
 makeSectionTitle(miscPage, "Hitbox Expander", 6)
-makeToggle(miscPage, "Expand Hitboxes", 26, CONFIG.HitboxEnabled, function(v) CONFIG.HitboxEnabled = v end)
-makeInput(miscPage, "Size multiplier", CONFIG.HitboxSize, 68, function(v)
+miscY = 6
+_mt(miscPage, "Expand Hitboxes", CONFIG.HitboxEnabled, function(v) CONFIG.HitboxEnabled = v end)
+_mi(miscPage, "Size multiplier", CONFIG.HitboxSize, function(v)
     CONFIG.HitboxSize = math.clamp(v, 1, 10)
     return CONFIG.HitboxSize
 end)
-makeInput(miscPage, "Max distance (studs)", CONFIG.HitboxMaxDistance, 110, function(v)
+_mi(miscPage, "Max distance (studs)", CONFIG.HitboxMaxDistance, function(v)
     CONFIG.HitboxMaxDistance = math.clamp(v, 25, 3000)
     return CONFIG.HitboxMaxDistance
 end)
@@ -708,6 +806,82 @@ local function setMenu(visible)
 end
 minimize.MouseButton1Click:Connect(function() setMenu(false) end)
 close.MouseButton1Click:Connect(function() setMenu(false) end)
+
+-- Мобильный fly-контроллер: экранные кнопки W/A/S/D/Space/LCtrl.
+-- Показывается только на мобиле и только когда Fly включён.
+local mobileFlyFrame
+if isMobile then
+    mobileFlyFrame = Instance.new("Frame")
+    mobileFlyFrame.Name = "MobileFly"
+    mobileFlyFrame.Size = UDim2.fromOffset(220, 220)
+    mobileFlyFrame.Position = UDim2.new(1, -240, 1, -260)
+    mobileFlyFrame.BackgroundTransparency = 1
+    mobileFlyFrame.Visible = false
+    mobileFlyFrame.Parent = gui
+
+    local function flyBtn(name, text, dx, dy, w, h)
+        local b = Instance.new("TextButton")
+        b.Name = name
+        b.Size = UDim2.fromOffset(w or 50, h or 50)
+        b.Position = UDim2.fromOffset(dx, dy)
+        b.BackgroundColor3 = Color3.fromRGB(35, 34, 50)
+        b.BackgroundTransparency = 0.4
+        b.Text = text
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 18
+        b.AutoButtonColor = true
+        b.Parent = mobileFlyFrame
+        corner(b, 12)
+        stroke(b, Color3.fromRGB(112, 92, 255), 1)
+        return b
+    end
+
+    -- W вверху, A слева, S внизу, D справа. Space (▲) выше W, LCtrl (▼) ниже S.
+    local btnSpace = flyBtn("Space", "▲", 80, 0, 50, 40)
+    local btnW = flyBtn("W", "W", 80, 50)
+    local btnA = flyBtn("A", "A", 20, 110)
+    local btnS = flyBtn("S", "S", 80, 110)
+    local btnD = flyBtn("D", "D", 140, 110)
+    local btnLCtrl = flyBtn("LCtrl", "▼", 80, 170, 50, 40)
+
+    local keyMap = {
+        W = "W", A = "A", S = "S", D = "D", Space = "Space", LCtrl = "LeftControl",
+    }
+    local flyKeyByBtn = {
+        W = "W", A = "A", S = "S", D = "D", Space = "Space", LCtrl = "LeftControl",
+    }
+
+    -- эмуляция удержания клавиш через глобальный флаг
+    local mobileKeys = {}
+    for _, btn in ipairs({ btnW, btnA, btnS, btnD, btnSpace, btnLCtrl }) do
+        local key = flyKeyByBtn[btn.Name]
+        btn.MouseButton1Down:Connect(function() mobileKeys[key] = true end)
+        btn.MouseButton1Up:Connect(function() mobileKeys[key] = false end)
+        -- тач-страховка
+        btn.TouchLongPress:Connect(function() end) -- noop, чтобы движок не игнорил touch
+    end
+    -- на тач-устройствах InputBegan не всегда срабатывает для TextButton с TouchEnded,
+    -- поэтому делаем явный TouchTap через InputBegan
+    for _, btn in ipairs({ btnW, btnA, btnS, btnD, btnSpace, btnLCtrl }) do
+        btn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                mobileKeys[flyKeyByBtn[btn.Name]] = true
+            end
+        end)
+        btn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                mobileKeys[flyKeyByBtn[btn.Name]] = false
+            end
+        end)
+    end
+    -- затыкаем тачи на мобильных кнопках, чтобы они не "съедали" тапы в игре
+    for _, btn in ipairs({ btnW, btnA, btnS, btnD, btnSpace, btnLCtrl }) do
+        btn.Active = true
+    end
+    -- глобальный доступ для fly-цикла
+    getgenv().__ESP_MOBILE_KEYS = mobileKeys
+end
 
 ------------------------------------------------------------
 -- Input
@@ -978,6 +1152,7 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- Fly
     if CONFIG.FlyEnabled then
+        if mobileFlyFrame then mobileFlyFrame.Visible = true end
         local root = getRoot()
         if root then
             if not flyBodyVelocity and CONFIG.FlyMethod == "BodyMover" then
@@ -986,12 +1161,20 @@ RunService.RenderStepped:Connect(function(dt)
                 startFly()
             end
             local direction = Vector3.zero
-            if flyKeyW then direction += Camera.CFrame.LookVector end
-            if flyKeyS then direction -= Camera.CFrame.LookVector end
-            if flyKeyD then direction += Camera.CFrame.RightVector end
-            if flyKeyA then direction -= Camera.CFrame.RightVector end
-            if flyKeySpace then direction += Vector3.yAxis end
-            if flyKeyLCTRL then direction -= Vector3.yAxis end
+            -- клавиатура ИЛИ мобильные кнопки
+            local mk = getgenv and getgenv().__ESP_MOBILE_KEYS
+            local wHeld = flyKeyW or (mk and mk.W)
+            local aHeld = flyKeyA or (mk and mk.A)
+            local sHeld = flyKeyS or (mk and mk.S)
+            local dHeld = flyKeyD or (mk and mk.D)
+            local spHeld = flyKeySpace or (mk and mk.Space)
+            local lcHeld = flyKeyLCTRL or (mk and mk.LeftControl)
+            if wHeld then direction += Camera.CFrame.LookVector end
+            if sHeld then direction -= Camera.CFrame.LookVector end
+            if dHeld then direction += Camera.CFrame.RightVector end
+            if aHeld then direction -= Camera.CFrame.RightVector end
+            if spHeld then direction += Vector3.yAxis end
+            if lcHeld then direction -= Vector3.yAxis end
 
             if CONFIG.FlyMethod == "CFrame" then
                 if direction.Magnitude > 0 then
@@ -1009,6 +1192,7 @@ RunService.RenderStepped:Connect(function(dt)
         end
     else
         if flyBodyVelocity or flySavedGravity then stopFly() end
+        if mobileFlyFrame then mobileFlyFrame.Visible = false end
     end
 
     -- No Clip
