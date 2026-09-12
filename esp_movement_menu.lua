@@ -9,102 +9,6 @@ if game and game.GetService and getgenv and getgenv().__ESP_MOVEMENT_MENU_LOADED
 end
 if getgenv then getgenv().__ESP_MOVEMENT_MENU_LOADED = true end
 
-------------------------------------------------------------
--- STAGED LOADER: прогресс-оверлей
-------------------------------------------------------------
--- Показываем оверлей сразу, до основного pcall. На мобиле это спасает от
--- "чёрного экрана" во время тяжёлой инициализации — пользователь видит
--- что загрузка идёт и на каком этапе.
-local _bootGui
-pcall(function()
-    local _pg = game:GetService("Players").LocalPlayer
-    if _pg then
-        local _plg = _pg:FindFirstChildOfClass("PlayerGui")
-        if _plg then
-            _bootGui = Instance.new("ScreenGui")
-            _bootGui.Name = "DebugToolsBoot"
-            _bootGui.ResetOnSpawn = false
-            _bootGui.IgnoreGuiInset = true
-            _bootGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-            _bootGui.Parent = _plg
-
-            local _frame = Instance.new("Frame")
-            _frame.Size = UDim2.new(0, 260, 0, 70)
-            _frame.Position = UDim2.new(0.5, -130, 0, 60)
-            _frame.BackgroundColor3 = Color3.fromRGB(19, 19, 28)
-            _frame.BorderSizePixel = 0
-            _frame.Parent = _bootGui
-            local _fc = Instance.new("UICorner"); _fc.CornerRadius = UDim.new(0, 10); _fc.Parent = _frame
-
-            local _title = Instance.new("TextLabel")
-            _title.Size = UDim2.new(1, -16, 0, 22)
-            _title.Position = UDim2.fromOffset(8, 8)
-            _title.BackgroundTransparency = 1
-            _title.Text = "DEBUG TOOLS — загрузка…"
-            _title.TextColor3 = Color3.new(1, 1, 1)
-            _title.Font = Enum.Font.GothamBold
-            _title.TextSize = 13
-            _title.TextXAlignment = Enum.TextXAlignment.Left
-            _title.Parent = _frame
-
-            local _stage = Instance.new("TextLabel")
-            _stage.Size = UDim2.new(1, -16, 0, 16)
-            _stage.Position = UDim2.fromOffset(8, 30)
-            _stage.BackgroundTransparency = 1
-            _stage.Text = "[1/5] Инициализация…"
-            _stage.TextColor3 = Color3.fromRGB(170, 170, 195)
-            _stage.Font = Enum.Font.Gotham
-            _stage.TextSize = 11
-            _stage.TextXAlignment = Enum.TextXAlignment.Left
-            _stage.Parent = _frame
-
-            local _barBg = Instance.new("Frame")
-            _barBg.Size = UDim2.new(1, -16, 0, 6)
-            _barBg.Position = UDim2.fromOffset(8, 54)
-            _barBg.BackgroundColor3 = Color3.fromRGB(40, 39, 56)
-            _barBg.BorderSizePixel = 0
-            _barBg.Parent = _frame
-            local _bc = Instance.new("UICorner"); _bc.CornerRadius = UDim.new(1, 0); _bc.Parent = _barBg
-
-            local _barFill = Instance.new("Frame")
-            _barFill.Size = UDim2.new(0, 0, 1, 0)
-            _barFill.BackgroundColor3 = Color3.fromRGB(112, 92, 255)
-            _barFill.BorderSizePixel = 0
-            _barFill.Parent = _barBg
-            local _fc2 = Instance.new("UICorner"); _fc2.CornerRadius = UDim.new(1, 0); _fc2.Parent = _barFill
-
-            getgenv().__ESP_BOOT = {
-                gui = _bootGui,
-                title = _title,
-                stage = _stage,
-                fill = _barFill,
-            }
-        end
-    end
-end)
-
-local function _bootProgress(current, total, text)
-    local b = getgenv and getgenv().__ESP_BOOT
-    if not b or not b.gui or not b.gui.Parent then return end
-    if b.fill then
-        b.fill.Size = UDim2.new(current / total, 0, 1, 0)
-    end
-    if b.stage and text then
-        b.stage.Text = string.format("[%d/%d] %s", current, total, text)
-    end
-end
-
--- Хелпер: пауза + апдейт прогресса. На мобиле даём движку 1-2 кадра отрендерить.
-local STAGE_PAUSE = 0.15 -- секунд между этапами (на мобиле ок; на ПК почти незаметно)
-local function _stage(idx, total, text, work)
-    _bootProgress(idx - 1, total, text .. "…")
-    if work then work() end
-    _bootProgress(idx, total, text)
-    task.wait(STAGE_PAUSE)
-end
-
-local TOTAL_STAGES = 5
-
 local ok, err = pcall(function()
 
 ------------------------------------------------------------
@@ -121,11 +25,10 @@ local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- ВАЖНО: определяем isMobile СРАЗУ, до любого использования.
--- Раньше он определялся после создания кнопки, из-за чего mini.Visible = nil
--- и кнопка закрытия/сворачивания не работали корректно.
-local viewportSize = Camera.ViewportSize
-local isMobile = viewportSize.X < 600 or (UserInputService.TouchEnabled and viewportSize.X < 900)
-getgenv().__ESP_IS_MOBILE = isMobile
+-- Раньше он определялся ниже (после создания mini), из-за чего
+-- mini.Visible = nil и кнопки не работали корректно.
+local viewportSizeEarly = Camera.ViewportSize
+local isMobile = viewportSizeEarly.X < 600 or (UserInputService.TouchEnabled and viewportSizeEarly.X < 900)
 
 ------------------------------------------------------------
 -- Config / State
@@ -182,8 +85,6 @@ local state = {
 ------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------
--- STAGE 1: Services + state + helpers (база)
-_stage(1, TOTAL_STAGES, "База: сервисы и хелперы")
 local function getCharacter()
     return LocalPlayer.Character
 end
@@ -333,29 +234,26 @@ local function label(parent, text, size, position, fontSize, color)
     return l
 end
 
--- Универсальный обработчик тапа.
--- Совместим с Delta / Fluxus / Wave / Arceus и т.д.
--- Используем 3 уровня:
---   1) .Activated — на ПК и на большинстве executor'ов для тача
---   2) MouseButton1Click — fallback для executor'ов без Activated
---   3) Глобальный UserInputService.TouchEnded + позиция — тач-страховка для Delta,
---      где оба выше могут молчать. Считаем попадание тапа в AbsoluteRect кнопки.
--- Также делаем визуальный feedback (нажатая кнопка темнеет на 100мс) — сразу видно,
--- реагирует кнопка или нет.
+-- Универсальный обработчик тапа. Совместим с Delta / Fluxus / Wave и т.д.
+-- 3 уровня:
+--   1) .Activated — стандарт для Roblox
+--   2) MouseButton1Click — для ПК-экзекуторов
+--   3) Глобальный UserInputService.TouchEnded + проверка попадания в AbsoluteRect
+--      кнопки — тач-страховка для Delta, где первые два могут молчать.
+-- Также делаем визуальный feedback (кнопка белеет на 100мс) — сразу видно,
+-- реагирует или нет.
 getgenv().__ESP_TAP_REGISTRY = getgenv().__ESP_TAP_REGISTRY or {}
 local __tapRegistry = getgenv().__ESP_TAP_REGISTRY
 
 local function onTap(button, callback)
-    -- Сохраняем в реестр для глобального тач-обработчика (см. ниже)
     table.insert(__tapRegistry, { button = button, callback = callback })
 
     local function fire()
         pcall(callback)
-        -- визуальный feedback
         local orig = button.BackgroundColor3
         button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         task.delay(0.1, function()
-            pcall(function() button.BackgroundColor3 = orig end)
+            pcall(function() if button and button.Parent then button.BackgroundColor3 = orig end end)
         end)
     end
 
@@ -363,13 +261,12 @@ local function onTap(button, callback)
     button.MouseButton1Click:Connect(fire)
 end
 
--- Глобальный тач-обработчик: для каждого TouchEnded проверяем, попал ли палец
--- в какую-нибудь зарегистрированную кнопку. Это последний рубеж для Delta.
+-- Глобальный тач-обработчик — последний рубеж для Delta mobile
 if not getgenv().__ESP_TAP_HOOK_INSTALLED then
     getgenv().__ESP_TAP_HOOK_INSTALLED = true
     task.spawn(function()
         local uis = game:GetService("UserInputService")
-        local lastTouchStart = nil -- {pos, t}
+        local lastTouchStart = nil
         uis.TouchStarted:Connect(function(input, processed)
             if processed then return end
             lastTouchStart = { pos = input.Position, t = tick() }
@@ -383,10 +280,8 @@ if not getgenv().__ESP_TAP_HOOK_INSTALLED then
                 local btn = entry.button
                 if btn and btn.Parent and btn.Visible and btn.Active then
                     local r = btn.AbsoluteRect
-                    -- AbsoluteRect: Vector2 pos + Vector2 size
                     if p.X >= r.Min.X and p.X <= r.Max.X
                        and p.Y >= r.Min.Y and p.Y <= r.Max.Y then
-                        -- попали — вызываем колбэк
                         pcall(entry.callback)
                         break
                     end
@@ -400,8 +295,6 @@ end
 ------------------------------------------------------------
 -- GUI
 ------------------------------------------------------------
--- STAGE 2: создание окна, шапки, сайдбара вкладок
-_stage(2, TOTAL_STAGES, "Интерфейс: окно и шапка")
 local gui = Instance.new("ScreenGui")
 gui.Name = "DebugToolsGui"
 gui.ResetOnSpawn = false
@@ -450,7 +343,6 @@ do
     mini.MouseButton1Click:Connect(function()
         if not dragging then setMenu(true) end
     end)
-    -- Мобильная страховка: явный тап
     onTap(mini, function()
         if not dragging then setMenu(true) end
     end)
@@ -731,8 +623,6 @@ end
 ------------------------------------------------------------
 -- ESP
 ------------------------------------------------------------
--- STAGE 4: ESP-система (Highlight/Billboard + подписки на игроков)
-_stage(4, TOTAL_STAGES, "ESP: объекты и подписки")
 local espObjects = {}
 
 local function removeESP(player)
@@ -815,8 +705,6 @@ Players.PlayerRemoving:Connect(removeESP)
 ------------------------------------------------------------
 -- UI: страницы
 ------------------------------------------------------------
--- STAGE 3: создание ScrollingFrame'ов вкладок + наполнение тогглами/инпутами
-_stage(3, TOTAL_STAGES, "Интерфейс: вкладки и контролы")
 local espPage = pages.ESP
 local movePage = pages.Movement
 local aimPage = pages.AIM
@@ -987,18 +875,12 @@ for _, name in ipairs(pageOrder) do
     onTap(tabButtons[name], function() selectTab(name) end)
 end
 selectTab(state.ActiveTab)
--- Страховка: ещё раз вызываем после задержки, чтобы подсветка вкладки
--- точно применилась после рендера (на мобиле первый вызов иногда теряется
--- из-за staged loader).
-task.delay(0.5, function()
-    pcall(function() selectTab(state.ActiveTab) end)
-end)
+-- страховка подсветки после рендера
+task.delay(0.5, function() pcall(function() selectTab(state.ActiveTab) end) end)
 
 ------------------------------------------------------------
 -- Сворачивание/закрытие меню
 ------------------------------------------------------------
--- STAGE 5: всё остальное (mobile fly buttons, input, FOV, hookmetamethod, fly, hitbox, главный цикл)
-_stage(5, TOTAL_STAGES, "Input/Fly/Hitbox/Loop")
 local function setMenu(visible)
     state.MenuVisible = visible
     main.Visible = visible
@@ -1006,7 +888,6 @@ local function setMenu(visible)
 end
 minimize.MouseButton1Click:Connect(function() setMenu(false) end)
 close.MouseButton1Click:Connect(function() setMenu(false) end)
--- Мобильная страховка: тап по "—" и "×"
 onTap(minimize, function() setMenu(false) end)
 onTap(close, function() setMenu(false) end)
 
@@ -1290,7 +1171,6 @@ end
 -- Главный цикл
 ------------------------------------------------------------
 -- THROTTLE: тяжёлые операции (raycast ESP, getDescendants hitbox) НЕ каждый кадр.
--- Иначе на мобиле жёсткие лаги. Баланс плавность/производительность:
 -- ESP ~5 раз/сек, hitbox ~2.5 раза/сек.
 local ESP_TICK = 0
 local HITBOX_TICK = 0
@@ -1304,38 +1184,38 @@ RunService.RenderStepped:Connect(function(dt)
     -- ESP — throttled
     if now - ESP_TICK >= ESP_INTERVAL then
         ESP_TICK = now
-        for player, data in pairs(espObjects) do
-            if myRoot and data.Root and data.Root.Parent and data.Humanoid then
-                local distance = (myRoot.Position - data.Root.Position).Magnitude
-                local baseColor = getTeamColor(player)
-                local dim = false
-                if CONFIG.EspVisibleOnly then
-                    local head = data.Character and data.Character:FindFirstChild("Head")
-                    if head and not isTargetVisible(head) then
-                        dim = true
-                    end
+    for player, data in pairs(espObjects) do
+        if myRoot and data.Root and data.Root.Parent and data.Humanoid then
+            local distance = (myRoot.Position - data.Root.Position).Magnitude
+            local baseColor = getTeamColor(player)
+            local dim = false
+            if CONFIG.EspVisibleOnly then
+                local head = data.Character and data.Character:FindFirstChild("Head")
+                if head and not isTargetVisible(head) then
+                    dim = true
                 end
-                local visible = CONFIG.EspEnabled and distance <= CONFIG.EspMaxDistance and data.Humanoid.Health > 0
-                data.Highlight.Enabled = visible
-                data.Billboard.Enabled = visible
-                if visible then
-                    local col = dim and baseColor:Lerp(Color3.new(0.4, 0.4, 0.4), 0.5) or baseColor
-                    data.Label.TextColor3 = col
-                    data.Highlight.FillColor = col
-                    data.Label.Text = string.format(
-                        "%s\n%d studs | HP: %d/%d%s",
-                        player.DisplayName,
-                        math.floor(distance),
-                        math.floor(data.Humanoid.Health),
-                        math.floor(data.Humanoid.MaxHealth),
-                        dim and "  •  BEHIND" or ""
-                    )
-                end
-            else
-                removeESP(player)
             end
+            local visible = CONFIG.EspEnabled and distance <= CONFIG.EspMaxDistance and data.Humanoid.Health > 0
+            data.Highlight.Enabled = visible
+            data.Billboard.Enabled = visible
+            if visible then
+                local col = dim and baseColor:Lerp(Color3.new(0.4, 0.4, 0.4), 0.5) or baseColor
+                data.Label.TextColor3 = col
+                data.Highlight.FillColor = col
+                data.Label.Text = string.format(
+                    "%s\n%d studs | HP: %d/%d%s",
+                    player.DisplayName,
+                    math.floor(distance),
+                    math.floor(data.Humanoid.Health),
+                    math.floor(data.Humanoid.MaxHealth),
+                    dim and "  •  BEHIND" or ""
+                )
+            end
+        else
+            removeESP(player)
         end
     end
+    end -- ESP throttle close
 
     -- Aimbot
     if CONFIG.AimEnabled and (not CONFIG.AimHoldRMB or state.RightMouseDown) then
@@ -1423,7 +1303,7 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Hitbox Expander — throttled, чтобы не лагать на мобиле
+    -- Hitbox Expander — throttled
     if now - HITBOX_TICK >= HITBOX_INTERVAL then
         HITBOX_TICK = now
         if CONFIG.HitboxEnabled then
@@ -1494,31 +1374,6 @@ RunService.Stepped:Connect(function(_, dt)
 end)
 
 print("[DebugTools] loaded universal hub. RightShift — menu.")
-end)
-
--- Закрываем загрузочный оверлей через секунду (даём пользователю увидеть 100%)
-task.delay(1.0, function()
-    local b = getgenv and getgenv().__ESP_BOOT
-    if b and b.gui then
-        -- плавное затухание
-        local g = b.gui
-        for _, d in ipairs(g:GetDescendants()) do
-            if d:IsA("Frame") or d:IsA("TextLabel") then
-                -- OK, фрейды лейблы фейдим прозрачностью фона
-            end
-        end
-        -- проще: tween-затухание всего gui
-        pcall(function()
-            for _, d in ipairs(g:GetDescendants()) do
-                if d:IsA("TextLabel") then
-                    d.TextTransparency = 1
-                end
-            end
-        end)
-        task.wait(0.3)
-        pcall(function() g:Destroy() end)
-        if getgenv then getgenv().__ESP_BOOT = nil end
-    end
 end)
 
 if not ok then
