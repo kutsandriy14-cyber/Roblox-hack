@@ -11,6 +11,20 @@ if getgenv then getgenv().__ESP_MOVEMENT_MENU_LOADED = true end
 
 local ok, err = pcall(function()
 
+-- Логгер: пишет и в консоль executor'а, и в скрытое сообщение Roblox
+local __stages = {}
+local function dlog(stage)
+    table.insert(__stages, stage)
+    pcall(function() warn("[DT] " .. stage) end)
+    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "DebugTools",
+        Text = stage,
+        Duration = 2,
+    }) end)
+end
+
+dlog("services+config")
+
 ------------------------------------------------------------
 -- Services
 ------------------------------------------------------------
@@ -295,13 +309,17 @@ end
 ------------------------------------------------------------
 -- GUI
 ------------------------------------------------------------
+dlog("GUI (Rayfield)")
 ------------------------------------------------------------
 -- GUI: Rayfield UI Library
 ------------------------------------------------------------
 -- Rayfield сама рисует окно, табы, тоглы, слайдеры, инпуты, дропдауны.
 -- Это намного стабильнее для Delta mobile, чем самописные TextButton —
 -- внутри Rayfield использует свой собственный рендер (ImGui-подобный).
-local Rayfield = nil
+-- Весь блок обёрнут в собственный pcall — если Rayfield не загрузится,
+-- бэкенд (ESP/Aimbot/Fly) всё равно запустится.
+local Rayfield, Window, Tabs = nil, nil, nil
+local _guiOk, _guiErr = pcall(function()
 pcall(function()
     Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
@@ -587,6 +605,10 @@ if Rayfield then
             Rayfield:Destroy()
         end,
     })
+end -- if Rayfield then
+end) -- GUI pcall
+if not _guiOk then
+    warn("[DebugTools] GUI (Rayfield) ошибка: " .. tostring(_guiErr))
 end
 
 -- Если Rayfield не подгрузился — бэкенд всё равно работает,
@@ -671,9 +693,13 @@ end
 ------------------------------------------------------------
 -- Input
 ------------------------------------------------------------
+dlog("Input")
+-- RightShift toggles Rayfield window (Rayfield сам управляет видимостью через флаг)
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
-    if input.KeyCode == Enum.KeyCode.RightShift then setMenu(not state.MenuVisible) end
+    if input.KeyCode == Enum.KeyCode.RightShift and Window and Window.Toggle then
+        pcall(function() Window:Toggle() end)
+    end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         state.RightMouseDown = true
     end
@@ -700,6 +726,7 @@ end)
 
 ------------------------------------------------------------
 -- FOV Circle (Drawing)
+dlog("FOV")
 ------------------------------------------------------------
 local aimFovCircle, trigFovCircle
 if Drawing then
@@ -720,6 +747,7 @@ end
 
 ------------------------------------------------------------
 -- Анти-античит: моментальный откат WalkSpeed/JumpPower
+dlog("анти-античит")
 ------------------------------------------------------------
 local function bindForce(character)
     local hum = character:WaitForChild("Humanoid", 5)
@@ -778,6 +806,7 @@ end
 ------------------------------------------------------------
 -- Fly
 ------------------------------------------------------------
+dlog("Fly")
 local flyBodyVelocity, flyBodyGyro
 local flySavedGravity
 local flyKeyW, flyKeyA, flyKeyS, flyKeyD, flyKeySpace, flyKeyLCTRL
@@ -837,6 +866,7 @@ end
 
 ------------------------------------------------------------
 -- Hitbox Expander storage
+dlog("Hitbox")
 ------------------------------------------------------------
 local originalHitboxSizes = {}
 
@@ -870,46 +900,38 @@ end
 
 ------------------------------------------------------------
 -- Главный цикл
+dlog("RenderStepped")
 ------------------------------------------------------------
 -- THROTTLE: тяжёлые операции (raycast ESP, getDescendants hitbox) НЕ каждый кадр.
 -- ESP ~5 раз/сек, hitbox ~2.5 раза/сек.
 local ESP_TICK = 0
 local HITBOX_TICK = 0
-local ESP_INTERVAL = 0.2  -- 200 мс = 5 Гц
-local HITBOX_INTERVAL = 0.4 -- 400 мс = 2.5 Гц
+local ESP_INTERVAL = 0.5  -- 500 мс = 2 Гц (было 5 Гц — слишком лагает на Delta)
+local HITBOX_INTERVAL = 1.0 -- 1 секунда = 1 Гц (хитбоксы меняются редко)
 
 RunService.RenderStepped:Connect(function(dt)
     local now = tick()
     local myRoot = getRoot()
 
-    -- ESP — throttled
+    -- ESP — throttled, без raycast (на мобиле он жрёт FPS)
     if now - ESP_TICK >= ESP_INTERVAL then
         ESP_TICK = now
     for player, data in pairs(espObjects) do
         if myRoot and data.Root and data.Root.Parent and data.Humanoid then
             local distance = (myRoot.Position - data.Root.Position).Magnitude
             local baseColor = getTeamColor(player)
-            local dim = false
-            if CONFIG.EspVisibleOnly then
-                local head = data.Character and data.Character:FindFirstChild("Head")
-                if head and not isTargetVisible(head) then
-                    dim = true
-                end
-            end
             local visible = CONFIG.EspEnabled and distance <= CONFIG.EspMaxDistance and data.Humanoid.Health > 0
             data.Highlight.Enabled = visible
             data.Billboard.Enabled = visible
             if visible then
-                local col = dim and baseColor:Lerp(Color3.new(0.4, 0.4, 0.4), 0.5) or baseColor
-                data.Label.TextColor3 = col
-                data.Highlight.FillColor = col
+                data.Label.TextColor3 = baseColor
+                data.Highlight.FillColor = baseColor
                 data.Label.Text = string.format(
-                    "%s\n%d studs | HP: %d/%d%s",
+                    "%s\n%d studs | HP: %d/%d",
                     player.DisplayName,
                     math.floor(distance),
                     math.floor(data.Humanoid.Health),
-                    math.floor(data.Humanoid.MaxHealth),
-                    dim and "  •  BEHIND" or ""
+                    math.floor(data.Humanoid.MaxHealth)
                 )
             end
         else
@@ -1074,9 +1096,32 @@ RunService.Stepped:Connect(function(_, dt)
     end
 end)
 
+dlog("✓ loaded")
 print("[DebugTools] loaded universal hub. RightShift — menu.")
 end)
 
 if not ok then
     warn("[DebugTools] runtime error: " .. tostring(err))
+    -- показать на экране
+    pcall(function()
+        local sg = Instance.new("ScreenGui", game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"))
+        sg.Name = "DebugToolsError"
+        local f = Instance.new("Frame", sg)
+        f.Size = UDim2.new(1, -20, 0, 100)
+        f.Position = UDim2.new(0, 10, 0, 10)
+        f.BackgroundColor3 = Color3.fromRGB(120, 30, 30)
+        Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+        local t = Instance.new("TextLabel", f)
+        t.Size = UDim2.new(1, -20, 1, -20)
+        t.Position = UDim2.fromOffset(10, 10)
+        t.BackgroundTransparency = 1
+        t.TextColor3 = Color3.new(1, 1, 1)
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 14
+        t.TextWrapped = true
+        t.TextXAlignment = Enum.TextXAlignment.Left
+        t.TextYAlignment = Enum.TextYAlignment.Top
+        local stages = table.concat(__stages or {}, " → ")
+        t.Text = "❌ ERROR\nЭтапы: " .. stages .. "\nОшибка: " .. tostring(err)
+    end)
 end
