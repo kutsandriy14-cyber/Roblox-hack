@@ -1239,11 +1239,13 @@ end
 -- Главный цикл
 ------------------------------------------------------------
 -- THROTTLE: тяжёлые операции (raycast ESP, getDescendants hitbox) НЕ каждый кадр.
--- Иначе на мобиле будут жёсткие лаги. ESP обновляем ~10 раз/сек, hitbox ~5 раз/сек.
+-- Иначе на мобиле жёсткие лаги. Интервалы занижены для слабых устройств:
+-- ESP ~2.5 раза/сек, hitbox ~1.25 раза/сек. Если телефон всё равно тормозит —
+-- можно ещё поднять (0.6 / 1.0 или 0.8 / 1.5).
 local ESP_TICK = 0
 local HITBOX_TICK = 0
-local ESP_INTERVAL = 0.1  -- 100 мс = 10 Гц
-local HITBOX_INTERVAL = 0.2 -- 200 мс = 5 Гц
+local ESP_INTERVAL = 0.4  -- 400 мс = 2.5 Гц
+local HITBOX_INTERVAL = 0.8 -- 800 мс = 1.25 Гц
 
 RunService.RenderStepped:Connect(function(dt)
     local now = tick()
