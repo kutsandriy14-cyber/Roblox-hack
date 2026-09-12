@@ -333,26 +333,67 @@ local function label(parent, text, size, position, fontSize, color)
     return l
 end
 
--- Универсальный обработчик тапа: MouseButton1Click + Touch (InputBegan/InputEnded).
--- MouseButton1Click на мобиле часто не срабатывает — нужна явная подписка на Touch.
+-- Универсальный обработчик тапа.
+-- Совместим с Delta / Fluxus / Wave / Arceus и т.д.
+-- Используем 3 уровня:
+--   1) .Activated — на ПК и на большинстве executor'ов для тача
+--   2) MouseButton1Click — fallback для executor'ов без Activated
+--   3) Глобальный UserInputService.TouchEnded + позиция — тач-страховка для Delta,
+--      где оба выше могут молчать. Считаем попадание тапа в AbsoluteRect кнопки.
+-- Также делаем визуальный feedback (нажатая кнопка темнеет на 100мс) — сразу видно,
+-- реагирует кнопка или нет.
+getgenv().__ESP_TAP_REGISTRY = getgenv().__ESP_TAP_REGISTRY or {}
+local __tapRegistry = getgenv().__ESP_TAP_REGISTRY
+
 local function onTap(button, callback)
-    -- мышь (ПК)
-    button.MouseButton1Click:Connect(callback)
-    -- тач (мобилка) — фильтруем, чтобы драг не открывал меню
-    local pressedAt
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            pressedAt = tick()
-        end
-    end)
-    button.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch and pressedAt then
-            -- короткий тап (< 0.3с) — это клик, не драг
-            if tick() - pressedAt < 0.3 then
-                pcall(callback)
+    -- Сохраняем в реестр для глобального тач-обработчика (см. ниже)
+    table.insert(__tapRegistry, { button = button, callback = callback })
+
+    local function fire()
+        pcall(callback)
+        -- визуальный feedback
+        local orig = button.BackgroundColor3
+        button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        task.delay(0.1, function()
+            pcall(function() button.BackgroundColor3 = orig end)
+        end)
+    end
+
+    button.Activated:Connect(fire)
+    button.MouseButton1Click:Connect(fire)
+end
+
+-- Глобальный тач-обработчик: для каждого TouchEnded проверяем, попал ли палец
+-- в какую-нибудь зарегистрированную кнопку. Это последний рубеж для Delta.
+if not getgenv().__ESP_TAP_HOOK_INSTALLED then
+    getgenv().__ESP_TAP_HOOK_INSTALLED = true
+    task.spawn(function()
+        local uis = game:GetService("UserInputService")
+        local lastTouchStart = nil -- {pos, t}
+        uis.TouchStarted:Connect(function(input, processed)
+            if processed then return end
+            lastTouchStart = { pos = input.Position, t = tick() }
+        end)
+        uis.TouchEnded:Connect(function(input, processed)
+            if processed then return end
+            if not lastTouchStart then return end
+            if tick() - lastTouchStart.t > 0.5 then lastTouchStart = nil; return end
+            local p = input.Position
+            for _, entry in ipairs(__tapRegistry) do
+                local btn = entry.button
+                if btn and btn.Parent and btn.Visible and btn.Active then
+                    local r = btn.AbsoluteRect
+                    -- AbsoluteRect: Vector2 pos + Vector2 size
+                    if p.X >= r.Min.X and p.X <= r.Max.X
+                       and p.Y >= r.Min.Y and p.Y <= r.Max.Y then
+                        -- попали — вызываем колбэк
+                        pcall(entry.callback)
+                        break
+                    end
+                end
             end
-            pressedAt = nil
-        end
+            lastTouchStart = nil
+        end)
     end)
 end
 
@@ -458,6 +499,7 @@ local function topButton(text, x, color)
     b.Font = Enum.Font.GothamBold
     b.TextSize = 14
     b.AutoButtonColor = true
+    b.Active = true
     b.Parent = top
     corner(b, 7)
     return b
@@ -521,6 +563,7 @@ local function makeTab(name, text, order)
     b.TextSize = isMobile and 10 or 12
     b.TextWrapped = true
     b.AutoButtonColor = true
+    b.Active = true
     b.Parent = tabs
     corner(b, 7)
     tabButtons[name] = b
@@ -588,6 +631,7 @@ local function makeToggle(parent, text, y, initial, callback)
     b.TextSize = isMobile and 13 or 12
     b.TextColor3 = Color3.new(1, 1, 1)
     b.AutoButtonColor = true
+    b.Active = true
     b.Parent = parent
     corner(b, 8)
     local enabled = initial
@@ -658,6 +702,7 @@ local function makeSegmented(parent, title, options, y, default, callback)
         b.Font = Enum.Font.GothamBold
         b.TextSize = 11
         b.AutoButtonColor = true
+        b.Active = true
         b.Parent = row
         corner(b, 6)
         buttons[opt] = b
@@ -942,6 +987,12 @@ for _, name in ipairs(pageOrder) do
     onTap(tabButtons[name], function() selectTab(name) end)
 end
 selectTab(state.ActiveTab)
+-- Страховка: ещё раз вызываем после задержки, чтобы подсветка вкладки
+-- точно применилась после рендера (на мобиле первый вызов иногда теряется
+-- из-за staged loader).
+task.delay(0.5, function()
+    pcall(function() selectTab(state.ActiveTab) end)
+end)
 
 ------------------------------------------------------------
 -- Сворачивание/закрытие меню
@@ -1239,13 +1290,12 @@ end
 -- Главный цикл
 ------------------------------------------------------------
 -- THROTTLE: тяжёлые операции (raycast ESP, getDescendants hitbox) НЕ каждый кадр.
--- Иначе на мобиле жёсткие лаги. Интервалы занижены для слабых устройств:
--- ESP ~2.5 раза/сек, hitbox ~1.25 раза/сек. Если телефон всё равно тормозит —
--- можно ещё поднять (0.6 / 1.0 или 0.8 / 1.5).
+-- Иначе на мобиле жёсткие лаги. Баланс плавность/производительность:
+-- ESP ~5 раз/сек, hitbox ~2.5 раза/сек.
 local ESP_TICK = 0
 local HITBOX_TICK = 0
-local ESP_INTERVAL = 0.4  -- 400 мс = 2.5 Гц
-local HITBOX_INTERVAL = 0.8 -- 800 мс = 1.25 Гц
+local ESP_INTERVAL = 0.2  -- 200 мс = 5 Гц
+local HITBOX_INTERVAL = 0.4 -- 400 мс = 2.5 Гц
 
 RunService.RenderStepped:Connect(function(dt)
     local now = tick()
